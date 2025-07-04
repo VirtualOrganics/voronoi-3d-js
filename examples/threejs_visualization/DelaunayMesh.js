@@ -1,34 +1,32 @@
-import { delaunay } from '@derschmale/tympanum';  // For 3D triangulation
+import { delaunay } from '@derschmale/tympanum';
 import * as THREE from 'three';
-import { getTetraCircumcenter, verifyCircumcenter, getTetraBarycenter, sortVerticesCyclically, getTriangleCircumcenter, getTriangleBarycenter } from './geometryUtils.js';
+import { getTetraCircumcenter, verifyCircumcenter, getTetraBarycenter } from './geometryUtils.js';
 
 export class DelaunayMesh {
-    /**
-     * @param {Array<[number, number, number]>} points - An array of 3D points.
-     */
     constructor(points) {
-        // Ensure points are THREE.Vector3 for consistency in calculations
-        this.points = points.map(p => new THREE.Vector3(p[0], p[1], p[2])); 
-        this.originalPoints = points;
+        // Keep original arrays for Tympanum library
+        this.pointsArray = points;
+        // Also store as Vector3 for math operations
+        this.points = points.map(p => new THREE.Vector3(...p));
         
+        // This will store the result: array of tetrahedra
+        // Each tetrahedron is an array of 4 point indices, e.g., [[0, 5, 12, 3], ...]
         this.tetrahedra = [];
-        this.voronoiVertices = [];
-        this.voronoiEdges = [];
-        this.voronoiFaces = [];
-        this.adjacency = new Map();
+        
+        // Voronoi diagram data
+        this.voronoiVertices = []; // Will store circumcenters
+        this.voronoiEdges = [];    // Will store connections between circumcenters
+        this.adjacency = new Map(); // Map from face to tetrahedra
     }
 
     /**
-     * Computes the 3D Delaunay tetrahedralization.
+     * Computes the 3D Delaunay tetrahedralization using Tympanum.
      */
     computeDelaunay() {
-        console.log("🎯 Using Tympanum for 3D tetrahedralization...");
+        console.log(`Starting Delaunay computation for ${this.points.length} points...`);
         
-        // Prepare points for Tympanum (expects array format: [[x,y,z], [x,y,z], ...])
-        const pointsArray = this.originalPoints;
-        
-        // Compute the Delaunay tetrahedralization using Tympanum
-        const result = delaunay(pointsArray);
+        // Compute the Delaunay triangulation using Tympanum (needs array format)
+        const result = delaunay(this.pointsArray);
         
         // Check if result is valid
         if (!result || !Array.isArray(result)) {
@@ -58,16 +56,9 @@ export class DelaunayMesh {
                 console.error('Cannot find vertex index in:', v);
                 return null;
             }).filter(id => id !== null);
-        }).filter(t => t !== null && t.length === 4); // Tetrahedra have 4 vertices
+        }).filter(t => t !== null && t.length === 4);
         
-        if (this.tetrahedra.length === 0) {
-            console.error(`❌ 3D Delaunay triangulation failed! No tetrahedra generated.`);
-            console.log(`   This often happens when points are coplanar.`);
-            console.log(`   Point Z-coordinates:`, this.points.slice(0, 10).map(p => p.z.toFixed(3)));
-            return;
-        }
-        
-        console.log(`✅ 3D Delaunay computation complete. Found ${this.tetrahedra.length} tetrahedra.`);
+        console.log(`Delaunay computation complete. Found ${this.tetrahedra.length} tetrahedra.`);
         
         // Validate tetrahedra indices
         const maxIndex = Math.max(...this.tetrahedra.flat());
@@ -108,7 +99,7 @@ export class DelaunayMesh {
     }
 
     /**
-     * Builds a map from each triangular face to the tetrahedra that share it.
+     * Builds a map from each triangular face to the one or two tetrahedra that share it.
      * This is crucial for finding adjacent tetrahedra.
      */
     buildAdjacency() {
@@ -133,7 +124,7 @@ export class DelaunayMesh {
                 this.adjacency.get(key).push(tetraIndex);
             }
         });
-        console.log(`Built 3D adjacency map. Found ${this.adjacency.size} unique faces.`);
+        console.log(`Built adjacency map. Found ${this.adjacency.size} unique faces.`);
     }
 
     /**
@@ -141,8 +132,6 @@ export class DelaunayMesh {
      * Must be called after computeDelaunay() and buildAdjacency().
      */
     computeVoronoi() {
-        console.log("🎯 Computing 3D Voronoi diagram using tetrahedron circumcenters...");
-        
         let failedVerifications = 0;
         
         // 1. Compute Voronoi vertices (circumcenters of each tetra)
@@ -166,9 +155,9 @@ export class DelaunayMesh {
         if (failedVerifications > 0) {
             console.error(`🔴 Found ${failedVerifications} tetrahedra that failed circumcenter verification.`);
         } else {
-            console.log("✅ All 3D circumcenters passed verification.");
+            console.log("✅ All circumcenters passed verification.");
         }
-        console.log(`✅ Computed ${this.voronoiVertices.filter(v=>v).length} valid 3D Voronoi vertices.`);
+        console.log(`Computed ${this.voronoiVertices.filter(v=>v).length} valid Voronoi vertices.`);
 
         // 2. Compute Voronoi edges by connecting circumcenters of adjacent tetras
         this.voronoiEdges = [];
@@ -187,7 +176,7 @@ export class DelaunayMesh {
                 }
             }
         }
-        console.log(`✅ Computed ${this.voronoiEdges.length} 3D Voronoi edges.`);
+        console.log(`Computed ${this.voronoiEdges.length} Voronoi edges.`);
     }
 
     /**
@@ -196,7 +185,7 @@ export class DelaunayMesh {
      * Perfect for physics simulations and clean cellular structures.
      */
     computeVoronoiBarycenters() {
-        console.log("🎯 Computing 3D Voronoi structure using tetrahedron barycenters...");
+        console.log("🎯 Computing Voronoi structure using barycenters (centroids)...");
         
         // 1. Compute barycenter vertices (geometric centers of each tetra)
         this.voronoiVertices = this.tetrahedra.map((tetra, tetraIndex) => {
@@ -208,7 +197,7 @@ export class DelaunayMesh {
             return getTetraBarycenter(p0, p1, p2, p3);
         });
 
-        console.log(`✅ Computed ${this.voronoiVertices.length} 3D barycenter vertices (all bounded within mesh).`);
+        console.log(`✅ Computed ${this.voronoiVertices.length} barycenter vertices (all bounded within mesh).`);
 
         // 2. Compute edges by connecting barycenters of adjacent tetras (same logic as before)
         this.voronoiEdges = [];
@@ -227,70 +216,7 @@ export class DelaunayMesh {
                 }
             }
         }
-        console.log(`✅ Computed ${this.voronoiEdges.length} 3D barycenter-based Voronoi edges.`);
-        console.log("🎉 3D barycenter-based cellular structure complete!");
-    }
-
-    /**
-     * Computes mathematically correct Voronoi faces using the Delaunay-Voronoi duality.
-     * Each Delaunay edge is dual to a Voronoi face whose vertices are the circumcenters
-     * of all tetrahedra that share that edge.
-     */
-    computeVoronoiFaces() {
-        console.log("🎯 Computing 3D mathematically correct Voronoi faces...");
-        this.voronoiFaces = [];
-
-        // Step A: Build the Edge -> Tetrahedra mapping
-        const edgeToTetraMap = new Map();
-        this.tetrahedra.forEach((tetra, tetraIndex) => {
-            // Generate the 6 edges of each tetrahedron
-            const edges = [
-                [tetra[0], tetra[1]], [tetra[0], tetra[2]], [tetra[0], tetra[3]],
-                [tetra[1], tetra[2]], [tetra[1], tetra[3]], [tetra[2], tetra[3]]
-            ];
-            edges.forEach(edge => {
-                // Create canonical key (sorted indices)
-                const key = edge.sort((a, b) => a - b).join('-');
-                if (!edgeToTetraMap.has(key)) {
-                    edgeToTetraMap.set(key, []);
-                }
-                edgeToTetraMap.get(key).push(tetraIndex);
-            });
-        });
-
-        // Step B: Iterate through Delaunay edges to build Voronoi faces
-        let processedEdges = 0;
-        for (const [edgeKey, tetraIndices] of edgeToTetraMap.entries()) {
-            // Only process internal edges that form closed loops (3+ tetrahedra)
-            if (tetraIndices.length < 3) continue;
-
-            // 1. Collect the Voronoi vertices (circumcenters) for this face
-            const faceVertices = tetraIndices
-                .map(tetraIndex => this.voronoiVertices[tetraIndex])
-                .filter(v => v); // Filter out any null vertices
-
-            if (faceVertices.length < 3) continue;
-
-            // 2. Define the sorting axis (the Delaunay edge direction)
-            const [p_idx, q_idx] = edgeKey.split('-').map(Number);
-            const p = new THREE.Vector3().copy(this.points[p_idx]);
-            const q = new THREE.Vector3().copy(this.points[q_idx]);
-            const axis = new THREE.Vector3().subVectors(q, p);
-
-            // Convert array format vertices to THREE.Vector3 for sorting
-            const faceVerticesVec3 = faceVertices.map(v => 
-                v instanceof THREE.Vector3 ? v : new THREE.Vector3().copy(v)
-            );
-
-            // 3. Sort vertices cyclically around the Delaunay edge
-            const sortedVertices = sortVerticesCyclically(faceVerticesVec3, axis);
-            
-            // Store as array of Vector3 objects for easier Three.js integration
-            this.voronoiFaces.push(sortedVertices);
-            processedEdges++;
-        }
-
-        console.log(`✅ Computed ${this.voronoiFaces.length} mathematically correct 3D Voronoi faces.`);
-        console.log("🎉 True 3D Voronoi face computation complete!");
+        console.log(`✅ Computed ${this.voronoiEdges.length} barycenter-based Voronoi edges.`);
+        console.log("🎉 Barycenter-based cellular structure complete!");
     }
 } 

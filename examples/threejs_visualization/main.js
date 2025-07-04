@@ -30,7 +30,7 @@ let visualizationObjects = {
     delaunayFaces: null,
     voronoiVertices: [],
     voronoiLines: null,
-    voronoiFaces: []
+    voronoiFaces: null
 };
 
 // --- Appearance Settings ---
@@ -85,7 +85,7 @@ function generatePoissonPoints(numPoints, boxSize, minDist) {
     const points = [];
     const maxAttempts = 30; // Max attempts per point
     
-    // 3D point generation
+    // Add first point randomly
     points.push([
         (Math.random() - 0.5) * boxSize,
         (Math.random() - 0.5) * boxSize,
@@ -102,7 +102,7 @@ function generatePoissonPoints(numPoints, boxSize, minDist) {
                 (Math.random() - 0.5) * boxSize
             ];
             
-            // Check distance to all existing points (3D distance)
+            // Check distance to all existing points
             let validPoint = true;
             for (const existing of points) {
                 const dx = candidate[0] - existing[0];
@@ -162,8 +162,8 @@ function clearVisualization() {
     
     // Remove Voronoi faces
     if (visualizationObjects.voronoiFaces) {
-        visualizationObjects.voronoiFaces.forEach(faceMesh => scene.remove(faceMesh));
-        visualizationObjects.voronoiFaces = [];
+        scene.remove(visualizationObjects.voronoiFaces);
+        visualizationObjects.voronoiFaces = null;
     }
 }
 
@@ -225,15 +225,13 @@ function updateVisibility() {
     
     // Update Voronoi faces visibility
     if (visualizationObjects.voronoiFaces) {
-        visualizationObjects.voronoiFaces.forEach(faceMesh => {
-            faceMesh.visible = appearanceSettings.showVoronoiFaces;
-        });
+        visualizationObjects.voronoiFaces.visible = appearanceSettings.showVoronoiFaces;
     }
 }
 
 // --- Generate and visualize mesh ---
 function generateVisualization() {
-    console.log(`🎯 Generating ${currentNumPoints} points in 3D ${currentMode} mode...`);
+    console.log(`🎯 Generating ${currentNumPoints} points in ${currentMode} mode...`);
     
     // Clear existing visualization
     clearVisualization();
@@ -243,21 +241,11 @@ function generateVisualization() {
     
     // Generate points
     const pointsArray = generatePoissonPoints(currentNumPoints, boundingBoxSize, minDistance);
-    
-    console.log(`✅ Generated ${pointsArray.length} 3D Poisson-distributed points.`);
+    console.log(`✅ Generated ${pointsArray.length} Poisson-distributed points.`);
 
     // Compute mesh
     currentMesh = new DelaunayMesh(pointsArray);
     currentMesh.computeDelaunay();
-    
-    // Check if triangulation succeeded
-    const hasValidStructure = currentMesh.tetrahedra.length > 0;
-        
-    if (!hasValidStructure) {
-        console.error(`❌ Cannot proceed with visualization - no valid tetrahedra generated.`);
-        return;
-    }
-    
     currentMesh.buildAdjacency();
     
     // Choose computation method based on mode
@@ -271,15 +259,13 @@ function generateVisualization() {
     updateMaterials();
 
     // Visualize points
-    console.log(`🔍 Visualizing ${currentMesh.points.length} points...`);
-    
     for (const point of currentMesh.points) {
         const pointMesh = new THREE.Mesh(pointsGeometry, pointsMaterial);
         pointMesh.position.copy(point);
         scene.add(pointMesh);
         visualizationObjects.points.push(pointMesh);
     }
-    
+
     // Visualize Delaunay edges
     const delaunayEdges = currentMesh.getUniqueEdges();
     const delaunayLines = [];
@@ -290,20 +276,19 @@ function generateVisualization() {
         const p2 = currentMesh.points[j];
         
         if (p1 && p2) {
-    delaunayLines.push(p1, p2);
+            delaunayLines.push(p1, p2);
         }
-}
+    }
 
-const delaunayGeometry = new THREE.BufferGeometry().setFromPoints(delaunayLines);
+    const delaunayGeometry = new THREE.BufferGeometry().setFromPoints(delaunayLines);
     visualizationObjects.delaunayLines = new THREE.LineSegments(delaunayGeometry, delaunayMaterial);
     scene.add(visualizationObjects.delaunayLines);
 
-    // Visualize Delaunay Faces (Tetrahedral faces for 3D)
+    // Visualize Tetrahedral Faces
     const delaunayFaces = [];
     const delaunayIndices = [];
     let vertexIndex = 0;
 
-    // For 3D: render all faces of all tetrahedra
     for (const tetra of currentMesh.tetrahedra) {
         const p0 = currentMesh.points[tetra[0]];
         const p1 = currentMesh.points[tetra[1]];
@@ -327,7 +312,6 @@ const delaunayGeometry = new THREE.BufferGeometry().setFromPoints(delaunayLines)
         delaunayIndices.push(vertexIndex, vertexIndex + 1, vertexIndex + 2);
         vertexIndex += 3;
     }
-    console.log(`🔍 Rendered ${currentMesh.tetrahedra.length * 4} tetrahedral faces.`);
 
     const delaunayFaceGeometry = new THREE.BufferGeometry().setFromPoints(delaunayFaces);
     delaunayFaceGeometry.setIndex(delaunayIndices);
@@ -337,75 +321,87 @@ const delaunayGeometry = new THREE.BufferGeometry().setFromPoints(delaunayLines)
 
     // Visualize Voronoi/Barycenter vertices
     for (const v of currentMesh.voronoiVertices) {
-    if (v) {
-        const vertexMesh = new THREE.Mesh(voronoiVertexGeometry, voronoiVertexMaterial);
-        vertexMesh.position.copy(v);
-        scene.add(vertexMesh);
+        if (v) {
+            const vertexMesh = new THREE.Mesh(voronoiVertexGeometry, voronoiVertexMaterial);
+            vertexMesh.position.copy(v);
+            scene.add(vertexMesh);
             visualizationObjects.voronoiVertices.push(vertexMesh);
+        }
     }
-}
 
     // Visualize Voronoi/Barycenter edges
-const voronoiLines = [];
+    const voronoiLines = [];
     
     for (const edge of currentMesh.voronoiEdges) {
-    voronoiLines.push(edge[0], edge[1]);
-}
+        voronoiLines.push(edge[0], edge[1]);
+    }
     
-const voronoiGeometry = new THREE.BufferGeometry().setFromPoints(voronoiLines);
+    const voronoiGeometry = new THREE.BufferGeometry().setFromPoints(voronoiLines);
     visualizationObjects.voronoiLines = new THREE.LineSegments(voronoiGeometry, voronoiMaterial);
     scene.add(visualizationObjects.voronoiLines);
 
-    // Compute and Visualize Mathematically Correct Voronoi Faces (3D only for now)
-    const voronoiFaceMeshes = [];
-    
-    currentMesh.computeVoronoiFaces();
+    // Visualize Simplified Voronoi Faces
+    // Note: This is a simplified approximation. True 3D Voronoi faces are complex polyhedra
+    const voronoiFaces = [];
+    const voronoiFaceIndices = [];
+    let voronoiVertexIndex = 0;
 
-    console.log(`🔍 Rendering ${currentMesh.voronoiFaces.length} Voronoi faces...`);
-    
-    for (let faceIndex = 0; faceIndex < currentMesh.voronoiFaces.length; faceIndex++) {
-        const face = currentMesh.voronoiFaces[faceIndex];
-        if (face.length < 3) continue;
-
-        // Calculate face centroid for triangle fan triangulation
-        const centroid = new THREE.Vector3();
-        face.forEach(vertex => centroid.add(vertex));
-        centroid.divideScalar(face.length);
+    for (const edge of currentMesh.voronoiEdges) {
+        const v1 = edge[0];
+        const v2 = edge[1];
         
-        // Create triangle fan from centroid to each edge
-        for (let i = 0; i < face.length; i++) {
-            const v1 = face[i];
-            const v2 = face[(i + 1) % face.length];
+        // Create a small rectangular face perpendicular to the Voronoi edge
+        const edgeVector = new THREE.Vector3().subVectors(v2, v1);
+        const edgeLength = edgeVector.length();
+        
+        if (edgeLength > 0.1) { // Only create faces for longer edges
+            const edgeCenter = new THREE.Vector3().addVectors(v1, v2).multiplyScalar(0.5);
+            edgeVector.normalize();
             
-            // Skip degenerate triangles
-            const area = new THREE.Vector3().subVectors(v1, centroid)
-                .cross(new THREE.Vector3().subVectors(v2, centroid)).length();
-            if (area < 1e-10) continue;
+            // Create two perpendicular vectors
+            const up = new THREE.Vector3(0, 1, 0);
+            const perpendicular1 = new THREE.Vector3().crossVectors(edgeVector, up).normalize();
+            const perpendicular2 = new THREE.Vector3().crossVectors(edgeVector, perpendicular1).normalize();
             
-            // Create triangle: centroid -> v1 -> v2
-            const triangleGeometry = new THREE.BufferGeometry();
-            triangleGeometry.setFromPoints([centroid, v1, v2]);
-            triangleGeometry.computeVertexNormals();
+            const faceSize = Math.min(edgeLength * 0.3, 0.2);
             
-            const triangleMesh = new THREE.Mesh(triangleGeometry, voronoiFaceMaterial);
-            scene.add(triangleMesh);
-            voronoiFaceMeshes.push(triangleMesh);
+            // Create 4 corners of a small rectangle
+            const corner1 = edgeCenter.clone().add(perpendicular1.clone().multiplyScalar(faceSize))
+                                              .add(perpendicular2.clone().multiplyScalar(faceSize));
+            const corner2 = edgeCenter.clone().add(perpendicular1.clone().multiplyScalar(faceSize))
+                                              .sub(perpendicular2.clone().multiplyScalar(faceSize));
+            const corner3 = edgeCenter.clone().sub(perpendicular1.clone().multiplyScalar(faceSize))
+                                              .sub(perpendicular2.clone().multiplyScalar(faceSize));
+            const corner4 = edgeCenter.clone().sub(perpendicular1.clone().multiplyScalar(faceSize))
+                                              .add(perpendicular2.clone().multiplyScalar(faceSize));
+            
+            // Add vertices
+            voronoiFaces.push(corner1, corner2, corner3, corner4);
+            
+            // Add two triangles to form a rectangle
+            voronoiFaceIndices.push(
+                voronoiVertexIndex, voronoiVertexIndex + 1, voronoiVertexIndex + 2,
+                voronoiVertexIndex, voronoiVertexIndex + 2, voronoiVertexIndex + 3
+            );
+            voronoiVertexIndex += 4;
         }
     }
-    
-    // Store all Voronoi face meshes for visibility control
-    visualizationObjects.voronoiFaces = voronoiFaceMeshes;
+
+    if (voronoiFaces.length > 0) {
+        const voronoiFaceGeometry = new THREE.BufferGeometry().setFromPoints(voronoiFaces);
+        voronoiFaceGeometry.setIndex(voronoiFaceIndices);
+        voronoiFaceGeometry.computeVertexNormals();
+        visualizationObjects.voronoiFaces = new THREE.Mesh(voronoiFaceGeometry, voronoiFaceMaterial);
+        scene.add(visualizationObjects.voronoiFaces);
+    }
 
     // Apply visibility settings
     updateVisibility();
     
-    // Auto-position camera
-    positionCameraFor3D();
-    
     // Update stats
     updateStats();
     
-    console.log(`🎉 ${currentMode} 3D visualization complete!`);
+    console.log(`🎉 ${currentMode} visualization complete!`);
 }
 
 // --- Update visualization without regenerating points ---
@@ -439,9 +435,7 @@ function updateVisualization() {
     }
     
     if (visualizationObjects.voronoiFaces) {
-        visualizationObjects.voronoiFaces.forEach(faceMesh => {
-            faceMesh.material = voronoiFaceMaterial;
-        });
+        visualizationObjects.voronoiFaces.material = voronoiFaceMaterial;
     }
     
     // Apply visibility
@@ -459,8 +453,7 @@ function updateStats() {
         `💎 ${currentMode === 'barycenter' ? 'Barycenters' : 'Circumcenters'}: ${currentMesh.voronoiVertices.length}`,
         `🔗 Cellular Edges: ${currentMesh.voronoiEdges.length}`,
         `📐 Delaunay Edges: ${currentMesh.getUniqueEdges().size}`,
-        `📊 Voronoi Faces: ${currentMesh.voronoiFaces ? currentMesh.voronoiFaces.length : 0}`,
-        `📊 Adjacency: ${currentMesh.adjacency.size}`
+        `📊 Faces: ${currentMesh.adjacency.size}`
     ];
     
     statsContent.innerHTML = stats.join('<br>');
@@ -511,12 +504,11 @@ function setupControls() {
     modeButtons.forEach(btn => {
         btn.addEventListener('click', (e) => {
             const newMode = e.target.dataset.mode;
-            
-            if (newMode && newMode !== currentMode) {
+            if (newMode !== currentMode) {
                 currentMode = newMode;
                 
-                // Update button states for mode buttons
-                document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
+                // Update button states
+                modeButtons.forEach(b => b.classList.remove('active'));
                 e.target.classList.add('active');
                 
                 // Regenerate with new mode
@@ -642,19 +634,6 @@ function setupControls() {
     });
 }
 
-// --- Camera positioning for 3D mode ---
-function positionCameraFor3D() {
-    // Position camera looking at origin, slightly above and back
-    camera.position.set(0, 5, 10);
-    camera.lookAt(0, 0, 0);
-    
-    // Reset controls target to origin
-    controls.target.set(0, 0, 0);
-    controls.update();
-    
-    console.log("✅ Camera positioned");
-}
-
 // --- Window resize handler ---
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -675,7 +654,7 @@ function animate() {
 function init() {
     setupControls();
     generateVisualization();
-animate(); 
+    animate();
 }
 
 // Start the application
