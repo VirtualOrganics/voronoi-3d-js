@@ -2,13 +2,27 @@
 
 This project provides an interactive, real-time 3D visualization of Delaunay tetrahedralization and Voronoi diagrams, built with **Three.js**. It allows users to generate a set of 3D points and see the resulting geometric structures.
 
-![Delaunay Tetrahedralization](public/delaunay.png)
+## 🎮 **[Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/)**
+
+Experience the library in action with our **interactive Three.js demo**:
+- **🎛️ Comprehensive Control Panel**: Adjust points, colors, sizes, and visibility
+- **🔄 Dual Visualization Modes**: Switch between Barycenter and Circumcenter computation
+- **📊 Real-time Statistics**: Live mesh data and performance metrics
+- **🎨 Full Customization**: Colors, sizes, background, and visual elements
+- **⚡ Up to 1,000 Points**: Test complex 3D structures in real-time
+
+**[→ Launch Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/)**
+
+<img src="public/delaunay.png" alt="Delaunay Tetrahedralization" width="33%">
+
 *Delaunay tetrahedralization of the point set.*
 
-![Voronoi Diagram](public/voronoi.png)
+<img src="public/voronoi.png" alt="Voronoi Diagram" width="33%">
+
 *The corresponding Voronoi diagram, showing the cellular structure.*
 
-![Combined Visualization](public/combined.png)
+<img src="public/combined.png" alt="Combined Visualization" width="33%">
+
 *A combined view showing points, Delaunay edges, and Voronoi cells.*
 
 ## Features
@@ -41,17 +55,6 @@ This project provides an interactive, real-time 3D visualization of Delaunay tet
 - **Three.js**: For 3D rendering and interaction.
 - **@derschmale/tympanum**: For robust 3D Delaunay tetrahedralization.
 - **Vite**: For the development environment.
-
-## 🎮 **[Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/)**
-
-Experience the library in action with our **interactive Three.js demo**:
-- **🎛️ Comprehensive Control Panel**: Adjust points, colors, sizes, and visibility
-- **🔄 Dual Visualization Modes**: Switch between Barycenter and Circumcenter computation
-- **📊 Real-time Statistics**: Live mesh data and performance metrics
-- **🎨 Full Customization**: Colors, sizes, background, and visual elements
-- **⚡ Up to 1,000 Points**: Test complex 3D structures in real-time
-
-**[→ Launch Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/)**
 
 ## ✨ Features
 
