@@ -1,0 +1,46 @@
+{
+  "name": "voronoi-3d-js",
+  "private": false,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A lightweight, dependency-free JavaScript library for computing 3D Delaunay tetrahedralizations and their dual Voronoi diagrams.",
+  "main": "./dist/voronoi-3d-js.umd.js",
+  "module": "./dist/voronoi-3d-js.es.js",
+  "exports": {
+    ".": {
+      "import": "./dist/voronoi-3d-js.es.js",
+      "require": "./dist/voronoi-3d-js.umd.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "keywords": [
+    "delaunay",
+    "voronoi",
+    "3d",
+    "computational-geometry",
+    "triangulation",
+    "tetrahedralization"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@derschmale/tympanum": "^1.1.0"
+  },
+  "devDependencies": {
+    "vite": "^5.2.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/voronoi-3d-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/voronoi-3d-js/issues"
+  },
+  "homepage": "https://github.com/yourusername/voronoi-3d-js#readme"
+}

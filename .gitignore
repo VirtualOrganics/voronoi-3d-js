@@ -1,0 +1,12 @@
+# OS files
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Other projects
+3d-delaunay-voronoi/
+
+# Root package files (we only want voronoi-3d-js)
+/package.json
+/package-lock.json 

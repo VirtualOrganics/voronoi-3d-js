@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Delaunay Voronoi Demo</title>
+    <style>
+      body { margin: 0; font-family: Arial, sans-serif; overflow: hidden; }
+      canvas { display: block; }
+      
+      .control-panel {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        min-width: 320px;
+        max-width: 380px;
+        z-index: 1000;
+        transition: transform 0.3s ease;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      
+      .control-panel.hidden {
+        transform: translateX(-100%);
+      }
+      
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+      
+      .control-panel h3 {
+        margin: 0;
+        color: #00ffff;
+        font-size: 18px;
+      }
+      
+      .hide-btn {
+        background: #ff4444;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      
+      .show-btn {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        background: #00ffff;
+        color: #000;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        z-index: 1001;
+        display: none;
+      }
+      
+      .control-section {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+      }
+      
+      .section-title {
+        color: #ffff00;
+        font-size: 14px;
+        font-weight: bold;
+        margin-bottom: 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 5px;
+      }
+      
+      .control-group {
+        margin-bottom: 12px;
+      }
+      
+      .control-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 13px;
+        color: #ccc;
+      }
+      
+      .input-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .slider {
+        flex: 1;
+        height: 6px;
+        background: #333;
+        border-radius: 3px;
+        outline: none;
+        -webkit-appearance: none;
+      }
+      
+      .slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        background: #00ffff;
+        border-radius: 50%;
+        cursor: pointer;
+      }
+      
+      .slider::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        background: #00ffff;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+      }
+      
+      .number-input {
+        background: #333;
+        color: white;
+        border: 1px solid #555;
+        padding: 4px 8px;
+        border-radius: 4px;
+        width: 60px;
+        text-align: center;
+        font-size: 12px;
+      }
+      
+      .color-input {
+        width: 40px;
+        height: 30px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        background: transparent;
+      }
+      
+      .value-display {
+        background: #333;
+        padding: 4px 8px;
+        border-radius: 4px;
+        min-width: 30px;
+        text-align: center;
+        font-size: 12px;
+        color: #00ffff;
+      }
+      
+      .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      
+      .checkbox {
+        width: 16px;
+        height: 16px;
+        accent-color: #00ffff;
+      }
+      
+      .checkbox-label {
+        font-size: 13px;
+        color: #ccc;
+        cursor: pointer;
+      }
+      
+      .mode-toggle {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      
+      .mode-btn {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #00ffff;
+        background: transparent;
+        color: #00ffff;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.3s;
+      }
+      
+      .mode-btn.active {
+        background: #00ffff;
+        color: #000;
+      }
+      
+      .regenerate-btn {
+        background: #00ffff;
+        color: #000;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        width: 100%;
+        transition: background 0.3s;
+        margin-bottom: 15px;
+      }
+      
+      .regenerate-btn:hover {
+        background: #00cccc;
+      }
+      
+      .stats {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 10px;
+        border-radius: 5px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      
+      .stats-title {
+        color: #ffff00;
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+      
+      /* Custom scrollbar */
+      .control-panel::-webkit-scrollbar {
+        width: 6px;
+      }
+      
+      .control-panel::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+      }
+      
+      .control-panel::-webkit-scrollbar-thumb {
+        background: #00ffff;
+        border-radius: 3px;
+      }
+    </style>
+    <script type="module" crossorigin src="/voronoi-3d-js/assets/index-DbAzcefn.js"></script>
+  </head>
+  <body>
+    <canvas id="bg"></canvas>
+    
+    <button id="showBtn" class="show-btn">Show Controls</button>
+    
+    <div id="controlPanel" class="control-panel">
+      <div class="panel-header">
+        <h3>🚀 Voronoi Controls</h3>
+        <button id="hideBtn" class="hide-btn">Hide</button>
+      </div>
+      
+      <!-- Generation Controls -->
+      <div class="control-section">
+        <div class="section-title">Generation Controls</div>
+
+        <div class="control-group">
+          <label for="pointSlider">Number of Points</label>
+          <div class="input-row">
+            <input type="range" min="8" max="200" value="50" class="slider" id="pointSlider" />
+            <input type="number" min="8" max="1000" value="50" class="number-input" id="pointInput" />
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Voronoi Computation Mode</label>
+          <div class="mode-toggle">
+            <button class="mode-btn active" data-mode="barycenter">Barycenter (Fast)</button>
+            <button class="mode-btn" data-mode="circumcenter">Circumcenter (Accurate)</button>
+          </div>
+        </div>
+
+        <button id="regenerateBtn" class="regenerate-btn">Regenerate</button>
+      </div>
+
+      <!-- Visibility Controls -->
+      <div class="control-section">
+        <div class="section-title">👁️ Visibility</div>
+        
+        <div class="checkbox-group">
+          <input type="checkbox" class="checkbox" id="showPoints" checked>
+          <label class="checkbox-label" for="showPoints">Show Points</label>
+        </div>
+        
+        <div class="checkbox-group">
+          <input type="checkbox" class="checkbox" id="showDelaunay" checked>
+          <label class="checkbox-label" for="showDelaunay">Show Tetrahedral Mesh</label>
+        </div>
+        
+        <div class="checkbox-group">
+          <input type="checkbox" class="checkbox" id="showVoronoi" checked>
+          <label class="checkbox-label" for="showVoronoi">Show Voronoi Mesh</label>
+        </div>
+        
+        <div class="checkbox-group">
+          <input type="checkbox" class="checkbox" id="showVoronoiVertices" checked>
+          <label class="checkbox-label" for="showVoronoiVertices">Show Voronoi Vertices</label>
+        </div>
+        
+        <div class="checkbox-group">
+          <input type="checkbox" class="checkbox" id="showDelaunayFaces" checked>
+          <label class="checkbox-label" for="showDelaunayFaces">Show Tetrahedral Faces</label>
+        </div>
+        
+        <div class="checkbox-group">
+          <input type="checkbox" class="checkbox" id="showVoronoiFaces" checked>
+          <label class="checkbox-label" for="showVoronoiFaces">Show Voronoi Faces</label>
+        </div>
+      </div>
+
+      <!-- Appearance Settings -->
+      <div class="control-section">
+        <div class="section-title">🎨 Appearance</div>
+        
+        <div class="control-group">
+          <label>Background Color:</label>
+          <div class="input-row">
+            <input type="color" class="color-input" id="bgColor" value="#111111">
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Point Size:</label>
+          <div class="input-row">
+            <input type="range" class="slider" id="pointSize" min="0.02" max="0.3" step="0.01" value="0.075">
+            <div class="value-display" id="pointSizeValue">0.075</div>
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Point Color:</label>
+          <div class="input-row">
+            <input type="color" class="color-input" id="pointColor" value="#ff0000">
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Tetrahedral Edge Color:</label>
+          <div class="input-row">
+            <input type="color" class="color-input" id="delaunayColor" value="#aaaaaa">
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Voronoi Edge Color:</label>
+          <div class="input-row">
+            <input type="color" class="color-input" id="voronoiColor" value="#00ffff">
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Voronoi Vertex Color:</label>
+          <div class="input-row">
+            <input type="color" class="color-input" id="voronoiVertexColor" value="#ffff00">
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Voronoi Vertex Size:</label>
+          <div class="input-row">
+            <input type="range" class="slider" id="voronoiVertexSize" min="0.01" max="0.2" step="0.01" value="0.05">
+            <div class="value-display" id="voronoiVertexSizeValue">0.05</div>
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Tetrahedral Face Color:</label>
+          <div class="input-row">
+            <input type="color" class="color-input" id="delaunayFaceColor" value="#ff6600">
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Tetrahedral Face Transparency:</label>
+          <div class="input-row">
+            <input type="range" class="slider" id="delaunayFaceOpacity" min="0.05" max="1.0" step="0.05" value="0.3">
+            <div class="value-display" id="delaunayFaceOpacityValue">0.3</div>
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Voronoi Face Color:</label>
+          <div class="input-row">
+            <input type="color" class="color-input" id="voronoiFaceColor" value="#66ff00">
+          </div>
+        </div>
+        
+        <div class="control-group">
+          <label>Voronoi Face Transparency:</label>
+          <div class="input-row">
+            <input type="range" class="slider" id="voronoiFaceOpacity" min="0.05" max="1.0" step="0.05" value="0.2">
+            <div class="value-display" id="voronoiFaceOpacityValue">0.2</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Statistics -->
+      <div class="stats" id="stats">
+        <div class="stats-title">📊 Mesh Statistics:</div>
+        <div id="statsContent">Loading...</div>
+      </div>
+    </div>
+
+  </body>
+</html> 
