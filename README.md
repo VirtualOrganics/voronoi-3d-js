@@ -42,7 +42,7 @@ This project provides an interactive, real-time 3D visualization of Delaunay tet
 - **@derschmale/tympanum**: For robust 3D Delaunay tetrahedralization.
 - **Vite**: For the development environment.
 
-## 🎮 **[Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/demo/)**
+## 🎮 **[Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/)**
 
 Experience the library in action with our **interactive Three.js demo**:
 - **🎛️ Comprehensive Control Panel**: Adjust points, colors, sizes, and visibility
@@ -51,7 +51,7 @@ Experience the library in action with our **interactive Three.js demo**:
 - **🎨 Full Customization**: Colors, sizes, background, and visual elements
 - **⚡ Up to 1,000 Points**: Test complex 3D structures in real-time
 
-**[→ Launch Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/demo/)**
+**[→ Launch Interactive Demo](https://virtualorganics.github.io/voronoi-3d-js/)**
 
 ## ✨ Features
 
