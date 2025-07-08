@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { DelaunayMesh } from './DelaunayMesh.js';
+// import { DelaunayMesh } from './DelaunayMesh.js';  // Commented out for GPU experiment
 
 // --- Basic Three.js Scene Setup ---
 const scene = new THREE.Scene();
@@ -18,9 +20,11 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; // Makes movement feel smoother
 // --- END ORBIT CONTROLS ---
 
-console.log("🚀 3D Delaunay/Voronoi Engine Initialized");
+console.log("🚀 3D Delaunay-Voronoi Visualization Initialized");
 
-// --- State Variables ---
+// --- Parameters ---
+const boundingBoxSize = 5;
+let minDistance = 0.8;
 let currentNumPoints = 50;
 let currentMode = 'barycenter';
 let currentMesh = null;
@@ -51,7 +55,8 @@ let appearanceSettings = {
     showDelaunayFaces: true,
     showVoronoi: true,
     showVoronoiFaces: true,
-    showVoronoiVertices: true
+    showVoronoiVertices: true,
+    usePeriodicBoundaries: false
 };
 
 // --- Materials (will be updated by controls) ---
@@ -76,402 +81,146 @@ let voronoiVertexMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
 let pointsGeometry = new THREE.SphereGeometry(0.075, 16, 16);
 let voronoiVertexGeometry = new THREE.SphereGeometry(0.05, 8, 8);
 
-// --- Parameters ---
-const boundingBoxSize = 5;
-let minDistance = 0.8;
+// --- Bounding Box for Periodic Boundaries ---
+const boundingBoxMin = new THREE.Vector3(-1, -1, -1);
+const boundingBoxMax = new THREE.Vector3(1, 1, 1);
+const boundingBoxHelper = new THREE.Box3Helper(
+    new THREE.Box3(boundingBoxMin, boundingBoxMax),
+    new THREE.Color(0x888888)
+);
+scene.add(boundingBoxHelper);
+boundingBoxHelper.visible = false;
 
-// --- Simple Poisson disk sampling for better point distribution ---
-function generatePoissonPoints(numPoints, boxSize, minDist) {
-    const points = [];
-    const maxAttempts = 30; // Max attempts per point
-    
-    // 3D point generation
-    points.push([
-        (Math.random() - 0.5) * boxSize,
-        (Math.random() - 0.5) * boxSize,
-        (Math.random() - 0.5) * boxSize
-    ]);
-    
-    while (points.length < numPoints) {
-        let placed = false;
-        
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            const candidate = [
-                (Math.random() - 0.5) * boxSize,
-                (Math.random() - 0.5) * boxSize,
-                (Math.random() - 0.5) * boxSize
-            ];
-            
-            // Check distance to all existing points (3D distance)
-            let validPoint = true;
-            for (const existing of points) {
-                const dx = candidate[0] - existing[0];
-                const dy = candidate[1] - existing[1];
-                const dz = candidate[2] - existing[2];
-                const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                
-                if (dist < minDist) {
-                    validPoint = false;
-                    break;
-                }
-            }
-            
-            if (validPoint) {
-                points.push(candidate);
-                placed = true;
-                break;
-            }
-        }
-        
-        // If we can't place a point, reduce minDistance slightly
-        if (!placed) {
-            minDist *= 0.95;
-        }
-    }
-    
-    return points;
+// --- Window resize handler ---
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// --- Clear existing visualization ---
-function clearVisualization() {
-    // Remove points
-    visualizationObjects.points.forEach(point => scene.remove(point));
-    visualizationObjects.points = [];
-    
-    // Remove Delaunay lines
-    if (visualizationObjects.delaunayLines) {
-        scene.remove(visualizationObjects.delaunayLines);
-        visualizationObjects.delaunayLines = null;
-    }
-    
-    // Remove Delaunay faces
-    if (visualizationObjects.delaunayFaces) {
-        scene.remove(visualizationObjects.delaunayFaces);
-        visualizationObjects.delaunayFaces = null;
-    }
-    
-    // Remove Voronoi vertices
-    visualizationObjects.voronoiVertices.forEach(vertex => scene.remove(vertex));
-    visualizationObjects.voronoiVertices = [];
-    
-    // Remove Voronoi lines
-    if (visualizationObjects.voronoiLines) {
-        scene.remove(visualizationObjects.voronoiLines);
-        visualizationObjects.voronoiLines = null;
-    }
-    
-    // Remove Voronoi faces
-    if (visualizationObjects.voronoiFaces) {
-        visualizationObjects.voronoiFaces.forEach(faceMesh => scene.remove(faceMesh));
-        visualizationObjects.voronoiFaces = [];
-    }
+// --- Animation loop ---
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
 }
 
-// --- Update materials with current settings ---
-function updateMaterials() {
-    pointsMaterial.color.setHex(parseInt(appearanceSettings.pointColor.replace('#', ''), 16));
-    delaunayMaterial.color.setHex(parseInt(appearanceSettings.delaunayColor.replace('#', ''), 16));
-    delaunayFaceMaterial.color.setHex(parseInt(appearanceSettings.delaunayFaceColor.replace('#', ''), 16));
-    delaunayFaceMaterial.opacity = appearanceSettings.delaunayFaceOpacity;
-    voronoiMaterial.color.setHex(parseInt(appearanceSettings.voronoiColor.replace('#', ''), 16));
-    voronoiFaceMaterial.color.setHex(parseInt(appearanceSettings.voronoiFaceColor.replace('#', ''), 16));
-    voronoiFaceMaterial.opacity = appearanceSettings.voronoiFaceOpacity;
-    voronoiVertexMaterial.color.setHex(parseInt(appearanceSettings.voronoiVertexColor.replace('#', ''), 16));
-    
-    // Update geometries if sizes changed
-    const newPointSize = appearanceSettings.pointSize;
-    const newVoronoiVertexSize = appearanceSettings.voronoiVertexSize;
-    
-    if (pointsGeometry.parameters.radius !== newPointSize) {
-        pointsGeometry.dispose();
-        pointsGeometry = new THREE.SphereGeometry(newPointSize, 16, 16);
-    }
-    
-    if (voronoiVertexGeometry.parameters.radius !== newVoronoiVertexSize) {
-        voronoiVertexGeometry.dispose();
-        voronoiVertexGeometry = new THREE.SphereGeometry(newVoronoiVertexSize, 8, 8);
-    }
-    
-    // Update background
-    scene.background.setHex(parseInt(appearanceSettings.backgroundColor.replace('#', ''), 16));
-}
+// --- Initialization ---
+function init() {
+    // Set up scene, camera, renderer as usual
+    scene.background = new THREE.Color(appearanceSettings.backgroundColor);
+    camera.position.set(0, 5, 10);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
 
-// --- Update visibility ---
-function updateVisibility() {
-    // Update points visibility
-    visualizationObjects.points.forEach(point => {
-        point.visible = appearanceSettings.showPoints;
-    });
+    // Add orbit controls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // Set up GUI
+    const gui = new GUI();
     
-    // Update Delaunay visibility
-    if (visualizationObjects.delaunayLines) {
-        visualizationObjects.delaunayLines.visible = appearanceSettings.showDelaunay;
-    }
-    
-    // Update Delaunay faces visibility
-    if (visualizationObjects.delaunayFaces) {
-        visualizationObjects.delaunayFaces.visible = appearanceSettings.showDelaunayFaces;
-    }
-    
-    // Update Voronoi vertices visibility
-    visualizationObjects.voronoiVertices.forEach(vertex => {
-        vertex.visible = appearanceSettings.showVoronoiVertices;
-    });
-    
-    // Update Voronoi lines visibility
-    if (visualizationObjects.voronoiLines) {
-        visualizationObjects.voronoiLines.visible = appearanceSettings.showVoronoi;
-    }
-    
-    // Update Voronoi faces visibility
-    if (visualizationObjects.voronoiFaces) {
-        visualizationObjects.voronoiFaces.forEach(faceMesh => {
-            faceMesh.visible = appearanceSettings.showVoronoiFaces;
+    // Generation Controls folder
+    const generationFolder = gui.addFolder('Generation');
+    generationFolder.add({ numPoints: currentNumPoints }, 'numPoints', 8, 200, 1)
+        .name('Number of Points')
+        .onChange(value => {
+            currentNumPoints = value;
+            generateVisualization();
         });
+    
+    // Periodic Boundaries folder (add this BEFORE other folders to make it more visible)
+    const periodicFolder = gui.addFolder('Periodic Boundaries');
+    periodicFolder.add(appearanceSettings, 'usePeriodicBoundaries')
+        .name('Enable Periodic')
+        .onChange(() => {
+            boundingBoxHelper.visible = appearanceSettings.usePeriodicBoundaries;
+            generateVisualization();
+        });
+    
+    // Bounding box controls
+    periodicFolder.add(boundingBoxMin, 'x', -5, 0).name('Min X').onChange(updateBoundingBox);
+    periodicFolder.add(boundingBoxMin, 'y', -5, 0).name('Min Y').onChange(updateBoundingBox);
+    periodicFolder.add(boundingBoxMin, 'z', -5, 0).name('Min Z').onChange(updateBoundingBox);
+    periodicFolder.add(boundingBoxMax, 'x', 0, 5).name('Max X').onChange(updateBoundingBox);
+    periodicFolder.add(boundingBoxMax, 'y', 0, 5).name('Max Y').onChange(updateBoundingBox);
+    periodicFolder.add(boundingBoxMax, 'z', 0, 5).name('Max Z').onChange(updateBoundingBox);
+    
+    // Visualization folder
+    const visualFolder = gui.addFolder('Visualization');
+    visualFolder.add(appearanceSettings, 'showPoints').name('Show Points').onChange(updateVisibility);
+    visualFolder.add(appearanceSettings, 'showDelaunay').name('Show Delaunay').onChange(updateVisibility);
+    visualFolder.add(appearanceSettings, 'showDelaunayFaces').name('Show Delaunay Faces').onChange(updateVisibility);
+    visualFolder.add(appearanceSettings, 'showVoronoi').name('Show Voronoi').onChange(updateVisibility);
+    visualFolder.add(appearanceSettings, 'showVoronoiFaces').name('Show Voronoi Faces').onChange(updateVisibility);
+    visualFolder.add(appearanceSettings, 'showVoronoiVertices').name('Show Voronoi Vertices').onChange(updateVisibility);
+    
+    // Appearance folder
+    const appearanceFolder = gui.addFolder('Appearance');
+    appearanceFolder.addColor(appearanceSettings, 'backgroundColor').name('Background').onChange(updateMaterials);
+    appearanceFolder.addColor(appearanceSettings, 'pointColor').name('Point Color').onChange(updateMaterials);
+    appearanceFolder.add(appearanceSettings, 'pointSize', 0.01, 0.2).name('Point Size').onChange(updateMaterials);
+    appearanceFolder.addColor(appearanceSettings, 'delaunayColor').name('Delaunay Color').onChange(updateMaterials);
+    appearanceFolder.addColor(appearanceSettings, 'delaunayFaceColor').name('Delaunay Face').onChange(updateMaterials);
+    appearanceFolder.add(appearanceSettings, 'delaunayFaceOpacity', 0, 1).name('Delaunay Opacity').onChange(updateMaterials);
+    appearanceFolder.addColor(appearanceSettings, 'voronoiColor').name('Voronoi Color').onChange(updateMaterials);
+    appearanceFolder.addColor(appearanceSettings, 'voronoiFaceColor').name('Voronoi Face').onChange(updateMaterials);
+    appearanceFolder.add(appearanceSettings, 'voronoiFaceOpacity', 0, 1).name('Voronoi Opacity').onChange(updateMaterials);
+    appearanceFolder.addColor(appearanceSettings, 'voronoiVertexColor').name('Vertex Color').onChange(updateMaterials);
+    appearanceFolder.add(appearanceSettings, 'voronoiVertexSize', 0.01, 0.2).name('Vertex Size').onChange(updateMaterials);
+    
+    // Open the Periodic Boundaries folder by default
+    periodicFolder.open();
+    
+    // Generate initial visualization
+    generateVisualization();
+    
+    // Start animation loop
+    animate();
+}
+
+// Function to update bounding box
+function updateBoundingBox() {
+    boundingBoxHelper.box.set(boundingBoxMin, boundingBoxMax);
+    if (appearanceSettings.usePeriodicBoundaries) {
+        generateVisualization();
     }
 }
 
-// --- Generate and visualize mesh ---
-function generateVisualization() {
-    console.log(`🎯 Generating ${currentNumPoints} points in 3D ${currentMode} mode...`);
-    
-    // Clear existing visualization
+// Update the updateDelaunayVoronoi function to handle periodic boundaries
+function updateDelaunayVoronoi() {
+    // Remove old meshes
     clearVisualization();
     
-    // Reset minDistance for new generation
-    minDistance = 0.8;
+    // Create new Delaunay mesh with periodic boundary settings
+    currentMesh = new DelaunayMesh(generatePoissonPoints(currentNumPoints, boundingBoxSize, minDistance), {
+        periodicBoundaries: appearanceSettings.usePeriodicBoundaries,
+        boundingBoxMin: boundingBoxMin,
+        boundingBoxMax: boundingBoxMax
+    });
     
-    // Generate points
-    const pointsArray = generatePoissonPoints(currentNumPoints, boundingBoxSize, minDistance);
+    // Update bounding box visualization
+    boundingBoxHelper.visible = appearanceSettings.usePeriodicBoundaries;
+    if (appearanceSettings.usePeriodicBoundaries) {
+        boundingBoxHelper.box.set(boundingBoxMin, boundingBoxMax);
+    }
     
-    console.log(`✅ Generated ${pointsArray.length} 3D Poisson-distributed points.`);
-
-    // Compute mesh
-    currentMesh = new DelaunayMesh(pointsArray);
+    // Compute Delaunay and Voronoi
     currentMesh.computeDelaunay();
-    
-    // Check if triangulation succeeded
-    const hasValidStructure = currentMesh.tetrahedra.length > 0;
-        
-    if (!hasValidStructure) {
-        console.error(`❌ Cannot proceed with visualization - no valid tetrahedra generated.`);
-        return;
-    }
-    
     currentMesh.buildAdjacency();
-    
-    // Choose computation method based on mode
-    if (currentMode === 'barycenter') {
-        currentMesh.computeVoronoiBarycenters();
-    } else {
-        currentMesh.computeVoronoi();
-    }
-
-    // Update materials before creating objects
-    updateMaterials();
-
-    // Visualize points
-    console.log(`🔍 Visualizing ${currentMesh.points.length} points...`);
-    
-    for (const point of currentMesh.points) {
-        const pointMesh = new THREE.Mesh(pointsGeometry, pointsMaterial);
-        pointMesh.position.copy(point);
-        scene.add(pointMesh);
-        visualizationObjects.points.push(pointMesh);
-    }
-    
-    // Visualize Delaunay edges
-    const delaunayEdges = currentMesh.getUniqueEdges();
-    const delaunayLines = [];
-
-    for (const edgeString of delaunayEdges) {
-        const [i, j] = edgeString.split('-').map(Number);
-        const p1 = currentMesh.points[i];
-        const p2 = currentMesh.points[j];
-        
-        if (p1 && p2) {
-    delaunayLines.push(p1, p2);
-        }
-}
-
-const delaunayGeometry = new THREE.BufferGeometry().setFromPoints(delaunayLines);
-    visualizationObjects.delaunayLines = new THREE.LineSegments(delaunayGeometry, delaunayMaterial);
-    scene.add(visualizationObjects.delaunayLines);
-
-    // Visualize Delaunay Faces (Tetrahedral faces for 3D)
-    const delaunayFaces = [];
-    const delaunayIndices = [];
-    let vertexIndex = 0;
-
-    // For 3D: render all faces of all tetrahedra
-    for (const tetra of currentMesh.tetrahedra) {
-        const p0 = currentMesh.points[tetra[0]];
-        const p1 = currentMesh.points[tetra[1]];
-        const p2 = currentMesh.points[tetra[2]];
-        const p3 = currentMesh.points[tetra[3]];
-        
-        // Add vertices for the 4 triangular faces of the tetrahedron
-        delaunayFaces.push(p0, p1, p2); // Face 1
-        delaunayIndices.push(vertexIndex, vertexIndex + 1, vertexIndex + 2);
-        vertexIndex += 3;
-        
-        delaunayFaces.push(p0, p1, p3); // Face 2
-        delaunayIndices.push(vertexIndex, vertexIndex + 1, vertexIndex + 2);
-        vertexIndex += 3;
-        
-        delaunayFaces.push(p0, p2, p3); // Face 3
-        delaunayIndices.push(vertexIndex, vertexIndex + 1, vertexIndex + 2);
-        vertexIndex += 3;
-        
-        delaunayFaces.push(p1, p2, p3); // Face 4
-        delaunayIndices.push(vertexIndex, vertexIndex + 1, vertexIndex + 2);
-        vertexIndex += 3;
-    }
-    console.log(`🔍 Rendered ${currentMesh.tetrahedra.length * 4} tetrahedral faces.`);
-
-    const delaunayFaceGeometry = new THREE.BufferGeometry().setFromPoints(delaunayFaces);
-    delaunayFaceGeometry.setIndex(delaunayIndices);
-    delaunayFaceGeometry.computeVertexNormals();
-    visualizationObjects.delaunayFaces = new THREE.Mesh(delaunayFaceGeometry, delaunayFaceMaterial);
-    scene.add(visualizationObjects.delaunayFaces);
-
-    // Visualize Voronoi/Barycenter vertices
-    for (const v of currentMesh.voronoiVertices) {
-    if (v) {
-        const vertexMesh = new THREE.Mesh(voronoiVertexGeometry, voronoiVertexMaterial);
-        vertexMesh.position.copy(v);
-        scene.add(vertexMesh);
-            visualizationObjects.voronoiVertices.push(vertexMesh);
-    }
-}
-
-    // Visualize Voronoi/Barycenter edges
-const voronoiLines = [];
-    
-    for (const edge of currentMesh.voronoiEdges) {
-    voronoiLines.push(edge[0], edge[1]);
-}
-    
-const voronoiGeometry = new THREE.BufferGeometry().setFromPoints(voronoiLines);
-    visualizationObjects.voronoiLines = new THREE.LineSegments(voronoiGeometry, voronoiMaterial);
-    scene.add(visualizationObjects.voronoiLines);
-
-    // Compute and Visualize Mathematically Correct Voronoi Faces (3D only for now)
-    const voronoiFaceMeshes = [];
-    
+    currentMesh.computeVoronoi();
     currentMesh.computeVoronoiFaces();
-
-    console.log(`🔍 Rendering ${currentMesh.voronoiFaces.length} Voronoi faces...`);
     
-    for (let faceIndex = 0; faceIndex < currentMesh.voronoiFaces.length; faceIndex++) {
-        const face = currentMesh.voronoiFaces[faceIndex];
-        if (face.length < 3) continue;
-
-        // Calculate face centroid for triangle fan triangulation
-        const centroid = new THREE.Vector3();
-        face.forEach(vertex => centroid.add(vertex));
-        centroid.divideScalar(face.length);
-        
-        // Create triangle fan from centroid to each edge
-        for (let i = 0; i < face.length; i++) {
-            const v1 = face[i];
-            const v2 = face[(i + 1) % face.length];
-            
-            // Skip degenerate triangles
-            const area = new THREE.Vector3().subVectors(v1, centroid)
-                .cross(new THREE.Vector3().subVectors(v2, centroid)).length();
-            if (area < 1e-10) continue;
-            
-            // Create triangle: centroid -> v1 -> v2
-            const triangleGeometry = new THREE.BufferGeometry();
-            triangleGeometry.setFromPoints([centroid, v1, v2]);
-            triangleGeometry.computeVertexNormals();
-            
-            const triangleMesh = new THREE.Mesh(triangleGeometry, voronoiFaceMaterial);
-            scene.add(triangleMesh);
-            voronoiFaceMeshes.push(triangleMesh);
-        }
-    }
-    
-    // Store all Voronoi face meshes for visibility control
-    visualizationObjects.voronoiFaces = voronoiFaceMeshes;
-
-    // Apply visibility settings
-    updateVisibility();
-    
-    // Auto-position camera
-    positionCameraFor3D();
-    
-    // Update stats
-    updateStats();
-    
-    console.log(`🎉 ${currentMode} 3D visualization complete!`);
+    // Create visualization meshes
+    generateVisualization();
 }
 
-// --- Update visualization without regenerating points ---
-function updateVisualization() {
-    if (!currentMesh) return;
-    
-    // Update materials
-    updateMaterials();
-    
-    // Update all existing objects with new materials and geometries
-    visualizationObjects.points.forEach(point => {
-        point.material = pointsMaterial;
-        point.geometry = pointsGeometry;
-    });
-    
-    if (visualizationObjects.delaunayLines) {
-        visualizationObjects.delaunayLines.material = delaunayMaterial;
-    }
-    
-    if (visualizationObjects.delaunayFaces) {
-        visualizationObjects.delaunayFaces.material = delaunayFaceMaterial;
-    }
-    
-    visualizationObjects.voronoiVertices.forEach(vertex => {
-        vertex.material = voronoiVertexMaterial;
-        vertex.geometry = voronoiVertexGeometry;
-    });
-    
-    if (visualizationObjects.voronoiLines) {
-        visualizationObjects.voronoiLines.material = voronoiMaterial;
-    }
-    
-    if (visualizationObjects.voronoiFaces) {
-        visualizationObjects.voronoiFaces.forEach(faceMesh => {
-            faceMesh.material = voronoiFaceMaterial;
-        });
-    }
-    
-    // Apply visibility
-    updateVisibility();
-}
-
-// --- Update statistics display ---
-function updateStats() {
-    if (!currentMesh) return;
-    
-    const statsContent = document.getElementById('statsContent');
-    const stats = [
-        `📍 Points: ${currentMesh.points.length}`,
-        `🔺 Tetrahedra: ${currentMesh.tetrahedra.length}`,
-        `💎 ${currentMode === 'barycenter' ? 'Barycenters' : 'Circumcenters'}: ${currentMesh.voronoiVertices.length}`,
-        `🔗 Cellular Edges: ${currentMesh.voronoiEdges.length}`,
-        `📐 Delaunay Edges: ${currentMesh.getUniqueEdges().size}`,
-        `📊 Voronoi Faces: ${currentMesh.voronoiFaces ? currentMesh.voronoiFaces.length : 0}`,
-        `📊 Adjacency: ${currentMesh.adjacency.size}`
-    ];
-    
-    statsContent.innerHTML = stats.join('<br>');
-}
-
-// --- Control Panel Event Listeners ---
 function setupControls() {
     const pointSlider = document.getElementById('pointSlider');
     const pointInput = document.getElementById('pointInput');
     const regenerateBtn = document.getElementById('regenerateBtn');
     const modeButtons = document.querySelectorAll('.mode-btn');
+    const periodicBoundariesCheckbox = document.getElementById('periodicBoundaries');
     
     // Panel hide/show
     const controlPanel = document.getElementById('controlPanel');
@@ -524,7 +273,14 @@ function setupControls() {
             }
         });
     });
-    
+
+    // Periodic boundaries control
+    periodicBoundariesCheckbox.addEventListener('change', (e) => {
+        appearanceSettings.usePeriodicBoundaries = e.target.checked;
+        boundingBoxHelper.visible = e.target.checked;
+        generateVisualization();
+    });
+
     // Visibility checkboxes
     const showPoints = document.getElementById('showPoints');
     const showDelaunay = document.getElementById('showDelaunay');
@@ -642,41 +398,6 @@ function setupControls() {
     });
 }
 
-// --- Camera positioning for 3D mode ---
-function positionCameraFor3D() {
-    // Position camera looking at origin, slightly above and back
-    camera.position.set(0, 5, 10);
-    camera.lookAt(0, 0, 0);
-    
-    // Reset controls target to origin
-    controls.target.set(0, 0, 0);
-    controls.update();
-    
-    console.log("✅ Camera positioned");
-}
-
-// --- Window resize handler ---
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
-window.addEventListener('resize', onWindowResize);
-
-// --- Animation loop ---
-function animate() {
-    requestAnimationFrame(animate);
-    controls.update();
-    renderer.render(scene, camera);
-}
-
-// --- Initialize ---
-function init() {
-    setupControls();
-    generateVisualization();
-animate(); 
-}
-
-// Start the application
-init(); 
+// Initialize when DOM is loaded
+init();
+setupControls(); 

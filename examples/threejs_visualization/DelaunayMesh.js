@@ -5,11 +5,21 @@ import { getTetraCircumcenter, verifyCircumcenter, getTetraBarycenter, sortVerti
 export class DelaunayMesh {
     /**
      * @param {Array<[number, number, number]>} points - An array of 3D points.
+     * @param {Object} options - Configuration options
+     * @param {boolean} options.periodicBoundaries - Whether to use periodic boundary conditions
+     * @param {THREE.Vector3} options.boundingBoxMin - Minimum corner of bounding box for periodic boundaries
+     * @param {THREE.Vector3} options.boundingBoxMax - Maximum corner of bounding box for periodic boundaries
      */
-    constructor(points) {
+    constructor(points, options = {}) {
         // Ensure points are THREE.Vector3 for consistency in calculations
         this.points = points.map(p => new THREE.Vector3(p[0], p[1], p[2])); 
         this.originalPoints = points;
+        
+        // Periodic boundary settings
+        this.periodicBoundaries = options.periodicBoundaries || false;
+        this.boundingBoxMin = options.boundingBoxMin || new THREE.Vector3(-1, -1, -1);
+        this.boundingBoxMax = options.boundingBoxMax || new THREE.Vector3(1, 1, 1);
+        this.boundingBoxSize = new THREE.Vector3().subVectors(this.boundingBoxMax, this.boundingBoxMin);
         
         this.tetrahedra = [];
         this.voronoiVertices = [];
@@ -19,16 +29,62 @@ export class DelaunayMesh {
     }
 
     /**
+     * Wraps a point to the periodic domain
+     * @param {THREE.Vector3} point - Point to wrap
+     * @returns {THREE.Vector3} Wrapped point
+     */
+    wrapPoint(point) {
+        if (!this.periodicBoundaries) return point.clone();
+        
+        const wrapped = point.clone();
+        for (let i = 0; i < 3; i++) {
+            while (wrapped.getComponent(i) < this.boundingBoxMin.getComponent(i)) {
+                wrapped.setComponent(i, wrapped.getComponent(i) + this.boundingBoxSize.getComponent(i));
+            }
+            while (wrapped.getComponent(i) >= this.boundingBoxMax.getComponent(i)) {
+                wrapped.setComponent(i, wrapped.getComponent(i) - this.boundingBoxSize.getComponent(i));
+            }
+        }
+        return wrapped;
+    }
+
+    /**
+     * Gets the minimum image distance between two points considering periodic boundaries
+     * @param {THREE.Vector3} p1 - First point
+     * @param {THREE.Vector3} p2 - Second point
+     * @returns {THREE.Vector3} Minimum image vector from p1 to p2
+     */
+    getMinimumImageVector(p1, p2) {
+        if (!this.periodicBoundaries) return new THREE.Vector3().subVectors(p2, p1);
+        
+        const delta = new THREE.Vector3().subVectors(p2, p1);
+        for (let i = 0; i < 3; i++) {
+            while (delta.getComponent(i) > this.boundingBoxSize.getComponent(i) * 0.5) {
+                delta.setComponent(i, delta.getComponent(i) - this.boundingBoxSize.getComponent(i));
+            }
+            while (delta.getComponent(i) <= -this.boundingBoxSize.getComponent(i) * 0.5) {
+                delta.setComponent(i, delta.getComponent(i) + this.boundingBoxSize.getComponent(i));
+            }
+        }
+        return delta;
+    }
+
+    /**
      * Computes the 3D Delaunay tetrahedralization.
      */
     computeDelaunay() {
         console.log("🎯 Using Tympanum for 3D tetrahedralization...");
         
-        // Prepare points for Tympanum (expects array format: [[x,y,z], [x,y,z], ...])
-        const pointsArray = this.originalPoints;
+        let pointsToProcess = this.originalPoints;
+        
+        // If using periodic boundaries, add ghost points
+        if (this.periodicBoundaries) {
+            console.log("Adding ghost points for periodic boundaries...");
+            pointsToProcess = this.addGhostPoints(this.originalPoints);
+        }
         
         // Compute the Delaunay tetrahedralization using Tympanum
-        const result = delaunay(pointsArray);
+        const result = delaunay(pointsToProcess);
         
         // Check if result is valid
         if (!result || !Array.isArray(result)) {
@@ -43,11 +99,6 @@ export class DelaunayMesh {
                 return null;
             }
             
-            // Debug: examine the vertex structure (only for first facet)
-            if (index === 0) {
-                console.log('First vertex structure confirmed:', Object.keys(facet.verts[0]));
-            }
-            
             return facet.verts.map(v => {
                 // Try different possible properties for the vertex index
                 if (v.id !== undefined) return v.id;
@@ -58,13 +109,21 @@ export class DelaunayMesh {
                 console.error('Cannot find vertex index in:', v);
                 return null;
             }).filter(id => id !== null);
-        }).filter(t => t !== null && t.length === 4); // Tetrahedra have 4 vertices
+        }).filter(t => t !== null && t.length === 4);
         
         if (this.tetrahedra.length === 0) {
             console.error(`❌ 3D Delaunay triangulation failed! No tetrahedra generated.`);
             console.log(`   This often happens when points are coplanar.`);
             console.log(`   Point Z-coordinates:`, this.points.slice(0, 10).map(p => p.z.toFixed(3)));
             return;
+        }
+        
+        // If using periodic boundaries, filter out tetrahedra with ghost points
+        if (this.periodicBoundaries) {
+            const numOriginalPoints = this.originalPoints.length;
+            this.tetrahedra = this.tetrahedra.filter(tetra => 
+                tetra.every(idx => idx < numOriginalPoints)
+            );
         }
         
         console.log(`✅ 3D Delaunay computation complete. Found ${this.tetrahedra.length} tetrahedra.`);
@@ -74,8 +133,41 @@ export class DelaunayMesh {
         if (maxIndex >= this.points.length) {
             console.error(`ERROR: Tetrahedra contain invalid indices. Max index: ${maxIndex}, Points: ${this.points.length}`);
         }
-        
-        console.log('First 5 tetrahedra:', this.tetrahedra.slice(0, 5));
+    }
+
+    /**
+     * Adds ghost points for periodic boundary conditions
+     * @param {Array} originalPoints - Original input points
+     * @returns {Array} Extended array including ghost points
+     * @private
+     */
+    addGhostPoints(originalPoints) {
+        const ghostPoints = [];
+        const offsets = [
+            [-1, -1, -1], [-1, -1, 0], [-1, -1, 1],
+            [-1, 0, -1],  [-1, 0, 0],  [-1, 0, 1],
+            [-1, 1, -1],  [-1, 1, 0],  [-1, 1, 1],
+            [0, -1, -1],  [0, -1, 0],  [0, -1, 1],
+            [0, 0, -1],                [0, 0, 1],
+            [0, 1, -1],   [0, 1, 0],   [0, 1, 1],
+            [1, -1, -1],  [1, -1, 0],  [1, -1, 1],
+            [1, 0, -1],   [1, 0, 0],   [1, 0, 1],
+            [1, 1, -1],   [1, 1, 0],   [1, 1, 1]
+        ];
+
+        // Add ghost points in neighboring periodic cells
+        for (const point of originalPoints) {
+            for (const offset of offsets) {
+                const ghostPoint = [
+                    point[0] + offset[0] * this.boundingBoxSize.x,
+                    point[1] + offset[1] * this.boundingBoxSize.y,
+                    point[2] + offset[2] * this.boundingBoxSize.z
+                ];
+                ghostPoints.push(ghostPoint);
+            }
+        }
+
+        return [...originalPoints, ...ghostPoints];
     }
 
     /**
@@ -141,34 +233,27 @@ export class DelaunayMesh {
      * Must be called after computeDelaunay() and buildAdjacency().
      */
     computeVoronoi() {
-        console.log("🎯 Computing 3D Voronoi diagram using tetrahedron circumcenters...");
-        
-        let failedVerifications = 0;
-        
         // 1. Compute Voronoi vertices (circumcenters of each tetra)
-        this.voronoiVertices = this.tetrahedra.map((tetra, tetraIndex) => {
-            const p0 = this.points[tetra[0]];
-            const p1 = this.points[tetra[1]];
-            const p2 = this.points[tetra[2]];
-            const p3 = this.points[tetra[3]];
-            
-            const center = getTetraCircumcenter(p0, p1, p2, p3);
+        this.voronoiVertices = this.tetrahedra.map(tetra => {
+            const p1 = this.points[tetra[0]];
+            const p2 = this.points[tetra[1]];
+            const p3 = this.points[tetra[2]];
+            const p4 = this.points[tetra[3]];
 
-            // --- VERIFICATION STEP ---
-            if (!verifyCircumcenter(center, p0, p1, p2, p3, tetraIndex)) {
-                failedVerifications++;
-                return null; // Return null for failed centers
+            // If using periodic boundaries, use minimum image vectors
+            if (this.periodicBoundaries) {
+                // Use p1 as reference and get minimum image vectors to other points
+                const v2 = new THREE.Vector3().addVectors(p1, this.getMinimumImageVector(p1, p2));
+                const v3 = new THREE.Vector3().addVectors(p1, this.getMinimumImageVector(p1, p3));
+                const v4 = new THREE.Vector3().addVectors(p1, this.getMinimumImageVector(p1, p4));
+                const center = getTetraCircumcenter(p1, v2, v3, v4);
+                return this.wrapPoint(center);
+            } else {
+                return getTetraCircumcenter(p1, p2, p3, p4);
             }
-            
-            return center;
-        });
+        }).filter(v => v !== null); // Filter out any nulls from coplanar points
 
-        if (failedVerifications > 0) {
-            console.error(`🔴 Found ${failedVerifications} tetrahedra that failed circumcenter verification.`);
-        } else {
-            console.log("✅ All 3D circumcenters passed verification.");
-        }
-        console.log(`✅ Computed ${this.voronoiVertices.filter(v=>v).length} valid 3D Voronoi vertices.`);
+        console.log(`Computed ${this.voronoiVertices.length} Voronoi vertices.`);
 
         // 2. Compute Voronoi edges by connecting circumcenters of adjacent tetras
         this.voronoiEdges = [];
@@ -183,11 +268,20 @@ export class DelaunayMesh {
 
                 // Ensure both vertices were computed successfully
                 if (v1 && v2) {
-                    this.voronoiEdges.push([v1, v2]);
+                    if (this.periodicBoundaries) {
+                        // Use minimum image convention for edge vector
+                        const v2_wrapped = new THREE.Vector3().addVectors(
+                            v1, 
+                            this.getMinimumImageVector(v1, v2)
+                        );
+                        this.voronoiEdges.push([v1, v2_wrapped]);
+                    } else {
+                        this.voronoiEdges.push([v1, v2]);
+                    }
                 }
             }
         }
-        console.log(`✅ Computed ${this.voronoiEdges.length} 3D Voronoi edges.`);
+        console.log(`Computed ${this.voronoiEdges.length} Voronoi edges.`);
     }
 
     /**
@@ -261,36 +355,44 @@ export class DelaunayMesh {
         // Step B: Iterate through Delaunay edges to build Voronoi faces
         let processedEdges = 0;
         for (const [edgeKey, tetraIndices] of edgeToTetraMap.entries()) {
-            // Only process internal edges that form closed loops (3+ tetrahedra)
-            if (tetraIndices.length < 3) continue;
-
-            // 1. Collect the Voronoi vertices (circumcenters) for this face
-            const faceVertices = tetraIndices
-                .map(tetraIndex => this.voronoiVertices[tetraIndex])
-                .filter(v => v); // Filter out any null vertices
-
-            if (faceVertices.length < 3) continue;
-
-            // 2. Define the sorting axis (the Delaunay edge direction)
-            const [p_idx, q_idx] = edgeKey.split('-').map(Number);
-            const p = new THREE.Vector3().copy(this.points[p_idx]);
-            const q = new THREE.Vector3().copy(this.points[q_idx]);
-            const axis = new THREE.Vector3().subVectors(q, p);
-
-            // Convert array format vertices to THREE.Vector3 for sorting
-            const faceVerticesVec3 = faceVertices.map(v => 
-                v instanceof THREE.Vector3 ? v : new THREE.Vector3().copy(v)
-            );
-
-            // 3. Sort vertices cyclically around the Delaunay edge
-            const sortedVertices = sortVerticesCyclically(faceVerticesVec3, axis);
-            
-            // Store as array of Vector3 objects for easier Three.js integration
-            this.voronoiFaces.push(sortedVertices);
             processedEdges++;
+            if (processedEdges % 100 === 0) {
+                console.log(`Processing edge ${processedEdges}/${edgeToTetraMap.size}...`);
+            }
+
+            // Get the vertices of the Voronoi face (circumcenters of tetrahedra)
+            const faceVertices = tetraIndices.map(idx => this.voronoiVertices[idx])
+                .filter(v => v !== null);
+
+            if (faceVertices.length >= 3) {
+                // Get the edge vector to use as sorting axis
+                const [v1, v2] = edgeKey.split('-').map(i => this.points[parseInt(i)]);
+                let edgeVector;
+                
+                if (this.periodicBoundaries) {
+                    edgeVector = this.getMinimumImageVector(v1, v2);
+                } else {
+                    edgeVector = new THREE.Vector3().subVectors(v2, v1);
+                }
+
+                // Sort vertices cyclically around the edge
+                const sortedVertices = sortVerticesCyclically(faceVertices, edgeVector);
+
+                // For periodic boundaries, ensure face vertices use minimum image convention
+                if (this.periodicBoundaries) {
+                    const refVertex = sortedVertices[0];
+                    for (let i = 1; i < sortedVertices.length; i++) {
+                        sortedVertices[i] = new THREE.Vector3().addVectors(
+                            refVertex,
+                            this.getMinimumImageVector(refVertex, sortedVertices[i])
+                        );
+                    }
+                }
+
+                this.voronoiFaces.push(sortedVertices);
+            }
         }
 
-        console.log(`✅ Computed ${this.voronoiFaces.length} mathematically correct 3D Voronoi faces.`);
-        console.log("🎉 True 3D Voronoi face computation complete!");
+        console.log(`✅ Computed ${this.voronoiFaces.length} Voronoi faces.`);
     }
 } 
